@@ -178,7 +178,7 @@ async def evaluer_sortie_equipe(
 
 # --- Interface web de chat ---
 app = agent.to_web(
-    allowed_hosts=["chatbot-buddy-agent.onrender.com"],
+    allowed_hosts=["agent-ia-96jj.onrender.com"],
     models={
         "GPT-4o Mini": gpt_model,
         "Claude 4.5 Haiku": haiku_model,
@@ -203,6 +203,6 @@ def dispatch_request_avec_limite(cls, request, **kwargs):
 VercelAIAdapter.dispatch_request = classmethod(dispatch_request_avec_limite)
 
 team_app = manager_agent.to_web(
-    allowed_hosts=["chatbot-buddy-agent.onrender.com"],
+    allowed_hosts=["agent-ia-96jj.onrender.com"],
     html_source=str(Path(__file__).parent / "ui" / "index.html"),
 )
