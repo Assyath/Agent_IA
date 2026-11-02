@@ -2,6 +2,7 @@
 import httpx
 import json
 from pathlib import Path
+import os
 
 # =====================================================
 # 1. CHARGEMENT DES DONNÉES DE LA BOUTIQUE
@@ -200,6 +201,50 @@ def convertir_devise(montant_xof: float, devise_cible: str) -> str:
 # =====================================================
 
 
+def notifier_gerante(commande: dict):
+    """Envoie une notification WhatsApp à la gérante."""
+
+    try:
+        instance_id = os.environ["GREEN_API_INSTANCE_ID"]
+        token = os.environ["GREEN_API_TOKEN"]
+        api_url = os.environ["GREEN_API_URL"].rstrip("/")
+        manager_chat_id = os.environ["GREEN_API_MANAGER_CHAT_ID"]
+
+        if not manager_chat_id.endswith("@c.us"):
+            manager_chat_id += "@c.us"
+
+        message = (
+            "🔔 NOUVELLE COMMANDE À VALIDER\n\n"
+            f"Identifiant : {commande['id']}\n"
+            f"Client : {commande['client']}\n"
+            f"Produit : {commande['produit']}\n"
+            f"Quantité : {commande['quantite']}\n"
+            f"Destination : {commande['zone']}\n"
+            f"Total : {commande['total']} XOF\n\n"
+            "Statut : En attente de votre validation."
+        )
+
+        url = (
+            f"{api_url}/waInstance{instance_id}"
+            f"/sendMessage/{token}"
+        )
+
+        with httpx.Client(timeout=15) as client:
+            response = client.post(
+                url,
+                json={
+                    "chatId": manager_chat_id,
+                    "message": message
+                }
+            )
+            response.raise_for_status()
+
+        print(f"Notification envoyée à la gérante pour {commande['id']}")
+
+    except Exception as erreur:
+        print("Erreur notification gérante :", erreur)
+
+
 def creer_commande(
     client_whatsapp: str,
     produit_id: str,
@@ -277,6 +322,7 @@ def creer_commande(
 
     COMMANDES.append(commande)
     sauvegarder_donnees()
+    notifier_gerante(commande)
 
     return (
         "Demande de commande enregistrée !\n"
