@@ -300,4 +300,3 @@ Plusieurs améliorations pourront être apportées au projet :
 
 Projet réalisé dans le cadre du Bootcamp RodiumAI.
 
-**GitHub :** [Assyath/Chatbot](https://github.com/Assyath/Chatbot)

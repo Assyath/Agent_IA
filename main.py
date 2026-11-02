@@ -1,3 +1,9 @@
+import asyncio
+import httpx
+from collections import defaultdict
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.background import BackgroundTask
 from datetime import datetime
 import os
 from pathlib import Path
@@ -205,4 +211,107 @@ VercelAIAdapter.dispatch_request = classmethod(dispatch_request_avec_limite)
 team_app = manager_agent.to_web(
     allowed_hosts=["agent-ia-96jj.onrender.com"],
     html_source=str(Path(__file__).parent / "ui" / "index.html"),
+)
+
+
+# --- Intégration WhatsApp Green API ---
+
+conversation_histories = {}
+processed_message_ids = set()
+chat_locks = defaultdict(asyncio.Lock)
+
+
+async def traiter_notification(payload: dict):
+    try:
+        if payload.get("typeWebhook") != "incomingMessageReceived":
+            return
+
+        message_data = payload.get("messageData", {})
+        if message_data.get("typeMessage") != "textMessage":
+            return
+
+        sender_data = payload.get("senderData", {})
+        chat_id = sender_data.get("chatId", "")
+        message_id = payload.get("idMessage")
+
+        # Pour cette première version, accepter uniquement les chats privés
+        if not chat_id.endswith("@c.us") or not message_id:
+            return
+
+        texte = message_data.get(
+            "textMessageData", {}
+        ).get("textMessage", "").strip()
+
+        if not texte or len(texte) > 4000:
+            return
+
+        async with chat_locks[chat_id]:
+            if message_id in processed_message_ids:
+                return
+
+            processed_message_ids.add(message_id)
+
+            historique = conversation_histories.get(chat_id, [])
+
+            demande = (
+                f"Numéro WhatsApp du client : "
+                f"{chat_id.removesuffix('@c.us')}\n"
+                f"Message du client : {texte}"
+            )
+
+            resultat = await manager_agent.run(
+                demande,
+                message_history=historique,
+                usage_limits=UsageLimits(tool_calls_limit=10),
+            )
+
+            conversation_histories[chat_id] = resultat.all_messages()
+
+            instance_id = os.environ["GREEN_API_INSTANCE_ID"]
+            token = os.environ["GREEN_API_TOKEN"]
+            api_url = os.environ["GREEN_API_URL"].rstrip("/")
+
+            url = (
+                f"{api_url}/waInstance{instance_id}"
+                f"/sendMessage/{token}"
+            )
+
+            async with httpx.AsyncClient(timeout=30) as client:
+                reponse = await client.post(
+                    url,
+                    json={
+                        "chatId": chat_id,
+                        "message": resultat.output,
+                    },
+                )
+                reponse.raise_for_status()
+
+            print(f"Réponse WhatsApp envoyée à {chat_id}")
+
+    except Exception as erreur:
+        print("Erreur de traitement WhatsApp :", erreur)
+
+
+async def green_api_webhook(request: Request):
+    secret = request.path_params["secret"]
+
+    if secret != os.environ.get("GREEN_API_WEBHOOK_SECRET"):
+        return JSONResponse({"error": "Unauthorized"}, status_code=403)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    # Répondre rapidement à Green API et traiter ensuite
+    return JSONResponse(
+        {"status": "accepted"},
+        background=BackgroundTask(traiter_notification, payload),
+    )
+
+
+team_app.add_route(
+    "/webhook/green-api/{secret}",
+    green_api_webhook,
+    methods=["POST"],
 )
