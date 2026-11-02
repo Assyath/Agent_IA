@@ -1,0 +1,81 @@
+{
+    "catalogue": {
+        "pagne_wax": {
+            "nom": "Pagne Wax Tchiganvi",
+            "prix": 15000,
+            "stock": 48
+        },
+        "pagne_lessi": {
+            "nom": "Pagne Lessi Blanc",
+            "prix": 25000,
+            "stock": 30
+        },
+        "sac_pagne": {
+            "nom": "Sac à main en Pagne",
+            "prix": 8000,
+            "stock": 15
+        }
+    },
+    "commandes": [
+        {
+            "id": "CMD-0001",
+            "client": "+229 0140225569",
+            "produit_id": "pagne_wax",
+            "produit": "Pagne Wax Tchiganvi",
+            "quantite": 2,
+            "zone": "Cotonou",
+            "montant_articles": 30000,
+            "frais_livraison": 1000,
+            "total": 31000,
+            "statut": "Acceptée - Commande confirmée"
+        },
+        {
+            "id": "CMD-0002",
+            "client": "+229 0140225569",
+            "produit_id": "pagne_kente",
+            "produit": "Pagne Lessi Blanc",
+            "quantite": 1,
+            "zone": "Cotonou",
+            "montant_articles": 25000,
+            "frais_livraison": 1000,
+            "total": 26000,
+            "statut": "Refusée par la gérante"
+        },
+        {
+            "id": "CMD-0003",
+            "client": "+229 0154232147",
+            "produit_id": "pagne_wax",
+            "produit": "Pagne Wax Tchiganvi",
+            "quantite": 2,
+            "zone": "Cotonou",
+            "montant_articles": 30000,
+            "frais_livraison": 1000,
+            "total": 31000,
+            "statut": "Acceptée - Commande confirmée"
+        },
+        {
+            "id": "CMD-0004",
+            "client": "+229 0165521214",
+            "produit_id": "pagne_wax",
+            "produit": "Pagne Wax Tchiganvi",
+            "quantite": 2,
+            "zone": "Porto-Novo",
+            "montant_articles": 30000,
+            "frais_livraison": 1500,
+            "total": 31500,
+            "statut": "En attente de validation de la gérante"
+        },
+        {
+            "id": "CMD-0005",
+            "client": "0144568974",
+            "produit_id": "pagne_wax",
+            "produit": "Pagne Wax Tchiganvi",
+            "quantite": 2,
+            "zone": "Cotonou",
+            "montant_articles": 30000,
+            "frais_livraison": 1000,
+            "total": 31000,
+            "statut": "En attente de validation de la gérante"
+        }
+    ]
+}

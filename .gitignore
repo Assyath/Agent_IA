@@ -1,6 +1,24 @@
+# Variables d'environnement et secrets
 .env
-.venv/
-__pycache__/
+.env.*
+!.env.example
 token.json
 credentials.json
+
+# Environnements Python
+.venv/
+.venv-*/
+__pycache__/
+*.py[cod]
+
+# Base de données locale
 chat.db
+*.sqlite
+*.sqlite3
+
+# Éditeurs et outils locaux
+.vscode/
+.claude/
+
+# Fichiers système
+.DS_Store
