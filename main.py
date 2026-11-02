@@ -6,6 +6,8 @@ from starlette.responses import JSONResponse
 from starlette.background import BackgroundTask
 from datetime import datetime
 import os
+import re
+from tools.boutique import COMMANDES, valider_commande
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_ai import Agent
@@ -221,6 +223,32 @@ processed_message_ids = set()
 chat_locks = defaultdict(asyncio.Lock)
 
 
+
+def normaliser_chat_id(numero: str) -> str:
+    numero = numero.strip().replace("+", "").replace(" ", "")
+    if not numero.endswith("@c.us"):
+        numero += "@c.us"
+    return numero
+
+
+async def envoyer_message_whatsapp(chat_id: str, message: str):
+    instance_id = os.environ["GREEN_API_INSTANCE_ID"]
+    token = os.environ["GREEN_API_TOKEN"]
+    api_url = os.environ["GREEN_API_URL"].rstrip("/")
+
+    url = (
+        f"{api_url}/waInstance{instance_id}"
+        f"/sendMessage/{token}"
+    )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            url,
+            json={"chatId": chat_id, "message": message}
+        )
+        response.raise_for_status()
+
+
 async def traiter_notification(payload: dict):
     try:
         if payload.get("typeWebhook") != "incomingMessageReceived":
@@ -234,7 +262,6 @@ async def traiter_notification(payload: dict):
         chat_id = sender_data.get("chatId", "")
         message_id = payload.get("idMessage")
 
-        # Pour cette première version, accepter uniquement les chats privés
         if not chat_id.endswith("@c.us") or not message_id:
             return
 
@@ -251,6 +278,80 @@ async def traiter_notification(payload: dict):
 
             processed_message_ids.add(message_id)
 
+            # CAS 1 : MESSAGE DE LA GERANTE
+            manager_id = normaliser_chat_id(
+                os.environ["GREEN_API_MANAGER_CHAT_ID"]
+            )
+
+            if chat_id == manager_id:
+                match = re.fullmatch(
+                    r"(ACCEPTER|REFUSER)\s+(CMD-\d+)",
+                    texte,
+                    re.IGNORECASE
+                )
+
+                if not match:
+                    await envoyer_message_whatsapp(
+                        chat_id,
+                        "Commande invalide. Répondez par :\n"
+                        "ACCEPTER CMD-0006\n"
+                        "ou REFUSER CMD-0006"
+                    )
+                    return
+
+                decision = match.group(1).lower()
+                commande_id = match.group(2).upper()
+
+                commande = next(
+                    (c for c in COMMANDES if c["id"] == commande_id),
+                    None
+                )
+
+                if commande is None:
+                    await envoyer_message_whatsapp(
+                        chat_id, "Commande introuvable."
+                    )
+                    return
+
+                # Validation sans appel à l'agent IA
+                resultat = valider_commande(
+                    commande_id, decision
+                )
+
+                await envoyer_message_whatsapp(chat_id, resultat)
+
+                statut = commande["statut"]
+                client_id = normaliser_chat_id(commande["client"])
+
+                if statut == "Acceptée - Commande confirmée":
+                    message_client = (
+                        f"Bonne nouvelle ! Votre commande {commande_id} "
+                        "a été acceptée par la gérante. "
+                        "Merci pour votre confiance !"
+                    )
+                elif statut == "Refusée par la gérante":
+                    message_client = (
+                        f"Votre commande {commande_id} "
+                        "a été refusée par la gérante. "
+                        "Nous vous remercions de votre compréhension."
+                    )
+                elif statut == "Refusée - Stock insuffisant":
+                    message_client = (
+                        f"Votre commande {commande_id} "
+                        "n'a pas pu être acceptée car le stock est "
+                        "devenu insuffisant."
+                    )
+                else:
+                    return
+
+                await envoyer_message_whatsapp(
+                    client_id, message_client
+                )
+
+                print(f"Commande {commande_id} traitée : {statut}")
+                return
+
+            # CAS 2 : MESSAGE D'UN CLIENT
             historique = conversation_histories.get(chat_id, [])
 
             demande = (
@@ -267,24 +368,9 @@ async def traiter_notification(payload: dict):
 
             conversation_histories[chat_id] = resultat.all_messages()
 
-            instance_id = os.environ["GREEN_API_INSTANCE_ID"]
-            token = os.environ["GREEN_API_TOKEN"]
-            api_url = os.environ["GREEN_API_URL"].rstrip("/")
-
-            url = (
-                f"{api_url}/waInstance{instance_id}"
-                f"/sendMessage/{token}"
+            await envoyer_message_whatsapp(
+                chat_id, resultat.output
             )
-
-            async with httpx.AsyncClient(timeout=30) as client:
-                reponse = await client.post(
-                    url,
-                    json={
-                        "chatId": chat_id,
-                        "message": resultat.output,
-                    },
-                )
-                reponse.raise_for_status()
 
             print(f"Réponse WhatsApp envoyée à {chat_id}")
 
