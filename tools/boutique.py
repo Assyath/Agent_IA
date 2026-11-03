@@ -3,6 +3,7 @@ import httpx
 import json
 from pathlib import Path
 import os
+import uuid
 
 # =====================================================
 # 1. CHARGEMENT DES DONNÉES DE LA BOUTIQUE
@@ -22,6 +23,80 @@ donnees = charger_donnees()
 
 CATALOGUE = donnees["catalogue"]
 COMMANDES = donnees["commandes"]
+
+
+# =====================================================
+# CONNEXION À CLOUDFLARE D1
+# =====================================================
+
+def appeler_d1(methode: str, chemin: str, donnees_json: dict = None):
+    """Communique avec l'API privée du Worker Cloudflare."""
+
+    worker_url = os.environ["CLOUDFLARE_WORKER_URL"].rstrip("/")
+    secret = os.environ["D1_API_SECRET"]
+
+    url = f"{worker_url}{chemin}"
+
+    with httpx.Client(timeout=20) as client:
+        response = client.request(
+            methode,
+            url,
+            headers={"Authorization": f"Bearer {secret}"},
+            json=donnees_json
+        )
+        response.raise_for_status()
+
+        if response.status_code == 204:
+            return {}
+
+        return response.json()
+
+
+def enregistrer_commande_d1(commande: dict):
+    """Enregistre une commande dans Cloudflare D1."""
+
+    return appeler_d1(
+        "POST",
+        "/api/commandes",
+        {
+            "id": commande["id"],
+            "client": commande["client"],
+            "produit_id": commande["produit_id"],
+            "quantite": commande["quantite"],
+            "zone": commande["zone"],
+            "montant_articles": commande["montant_articles"],
+            "frais_livraison": commande["frais_livraison"],
+            "total": commande["total"],
+            "statut": commande["statut"],
+            "details": commande
+        }
+    )
+
+
+def recuperer_commande_d1(commande_id: str):
+    """Récupère une commande depuis Cloudflare D1."""
+
+    resultat = appeler_d1(
+        "GET",
+        f"/api/commandes/{commande_id}"
+    )
+
+    commande = resultat.get("details", {})
+    commande["id"] = resultat["id"]
+    commande["statut"] = resultat["statut"]
+
+    return commande
+
+
+def modifier_statut_d1(commande_id: str, statut: str):
+    """Met à jour le statut d'une commande dans D1."""
+
+    return appeler_d1(
+        "PATCH",
+        f"/api/commandes/{commande_id}",
+        {"statut": statut}
+    )
+
 
 def sauvegarder_donnees():
     """Enregistre le catalogue et les commandes dans le fichier JSON."""
@@ -304,7 +379,7 @@ def creer_commande(
     total = montant_articles + frais_livraison
 
     # 9. Générer un identifiant unique
-    commande_id = f"CMD-{len(COMMANDES) + 1:04d}"
+    commande_id = f"CMD-{uuid.uuid4().hex[:8].upper()}"
     
     # 10. Enregistrer la demande
     commande = {
@@ -319,6 +394,12 @@ def creer_commande(
         "total": total,
         "statut": "En attente de validation de la gérante"
     }
+
+    try:
+       enregistrer_commande_d1(commande)
+    except Exception as erreur:
+        print("Erreur enregistrement D1 :", erreur)
+        return "Impossible d'enregistrer la commande. Veuillez réessayer."
 
     COMMANDES.append(commande)
     sauvegarder_donnees()
@@ -356,10 +437,16 @@ def valider_commande(commande_id: str, decision: str) -> str:
         return "Décision invalide. Choisissez 'accepter' ou 'refuser'."
 
     # Rechercher la commande
-    commande = next(
-        (c for c in COMMANDES if c["id"] == commande_id.strip()),
-        None
-    )
+    try:
+       commande = recuperer_commande_d1(commande_id.strip())
+    except httpx.HTTPStatusError as erreur:
+        if erreur.response.status_code == 404:
+           return "Commande introuvable."
+        print("Erreur D1 :", erreur)
+        return "Impossible de récupérer la commande."
+    except Exception as erreur:
+        print("Erreur D1 :", erreur)
+        return "Impossible de contacter la base de données."
 
     if commande is None:
         return "Commande introuvable."
@@ -375,6 +462,7 @@ def valider_commande(commande_id: str, decision: str) -> str:
         # Vérifier une nouvelle fois le stock
         if commande["quantite"] > produit["stock"]:
             commande["statut"] = "Refusée - Stock insuffisant"
+            modifier_statut_d1(commande_id, commande["statut"])
             sauvegarder_donnees()
 
             return (
@@ -387,6 +475,7 @@ def valider_commande(commande_id: str, decision: str) -> str:
 
         commande["statut"] = "Acceptée - Commande confirmée"
 
+        modifier_statut_d1(commande_id, commande["statut"])
         sauvegarder_donnees()
 
         return (
@@ -397,6 +486,7 @@ def valider_commande(commande_id: str, decision: str) -> str:
 
     # Refuser la commande
     commande["statut"] = "Refusée par la gérante"
+    modifier_statut_d1(commande_id, commande["statut"])
 
     sauvegarder_donnees()
 
